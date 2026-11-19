@@ -52,7 +52,7 @@ flowchart LR
 
 ### Week 1: Build and AWS Foundation
 - [x] Day 1: Repo setup, AWS budget alert, users-service (register, login, JWT, health)
-- [ ] Day 2: notes-service (JWT-protected CRUD)
+- [x] Day 2: notes-service (JWT-protected CRUD)
 - [ ] Day 3: notifications-service + Docker Compose with PostgreSQL
 - [ ] Day 4: Terraform for VPC, EKS (spot nodes) and RDS
 - [ ] Day 5: Secrets Manager + External Secrets Operator
@@ -125,6 +125,37 @@ uvicorn main:app --reload --port 8001
 ```
 
 API docs are generated automatically at `http://localhost:8001/docs`.
+
+### notes-service (port 8002)
+
+Every endpoint except `/health` requires `Authorization: Bearer <token>` from users-service. Each user can only see and change their own notes.
+
+| Method | Endpoint | Description | Success | Errors |
+|--------|----------|-------------|---------|--------|
+| GET | `/health` | Health check | 200 | |
+| POST | `/notes` | Create a note (owner taken from the JWT) | 201 | 401, 422 |
+| GET | `/notes` | List your notes, newest first | 200 | 401 |
+| GET | `/notes/{id}` | Get one of your notes | 200 | 401, 404 |
+| PUT | `/notes/{id}` | Partial update (title and/or content) | 200 | 401, 404, 422 |
+| DELETE | `/notes/{id}` | Delete one of your notes | 204 | 401, 404 |
+
+**Design decisions:**
+- **Database-per-service:** notes-service has its own database and never reads the users table
+- **Owner comes from the token:** `owner_id` is taken from the JWT `sub` claim, never from the request body
+- **404 instead of 403:** another user's note returns 404, so the API doesn't even reveal that it exists
+- **Strict token checks:** signature, expiry and HS256-only, using the same `JWT_SECRET` as users-service
+
+**Configuration:** `DATABASE_URL` (default `sqlite:///./notes.db`), `JWT_SECRET` (must match users-service)
+
+**Run locally:**
+
+```bash
+cd services/notes-service
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8002
+```
 
 ---
 
