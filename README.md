@@ -53,7 +53,7 @@ flowchart LR
 ### Week 1: Build and AWS Foundation
 - [x] Day 1: Repo setup, AWS budget alert, users-service (register, login, JWT, health)
 - [x] Day 2: notes-service (JWT-protected CRUD)
-- [ ] Day 3: notifications-service + Docker Compose with PostgreSQL
+- [x] Day 3: notifications-service + Docker Compose with PostgreSQL
 - [ ] Day 4: Terraform for VPC, EKS (spot nodes) and RDS
 - [ ] Day 5: Secrets Manager + External Secrets Operator
 - [ ] Day 6: Reusable Helm chart + ArgoCD app-of-apps
@@ -93,6 +93,25 @@ platform-v2/
 ├── gitops/                     # Helm chart + ArgoCD manifests
 └── docs/                       # Architecture notes and diagrams
 ```
+
+## Quick Start (Docker Compose)
+
+Run all three services plus PostgreSQL with one command:
+
+```bash
+git clone https://github.com/Raani1011/platform-v2.git
+cd platform-v2
+cp .env.example .env        # then replace the placeholder values
+docker compose up --build -d
+docker compose ps
+```
+
+| Service | URL |
+|---------|-----|
+| users-service | http://localhost:8001 |
+| notes-service | http://localhost:8002 |
+| notifications-service | http://localhost:8003 |
+| PostgreSQL | internal only, not exposed to the host |
 
 ---
 
@@ -156,6 +175,21 @@ source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8002
 ```
+
+### notifications-service (port 8003)
+
+An internal service that receives events from notes-service whenever a note is created, updated or deleted. It keeps the latest 100 events in memory and writes each one to its logs.
+
+| Method | Endpoint | Description | Success | Errors |
+|--------|----------|-------------|---------|--------|
+| GET | `/health` | Health check | 200 | |
+| POST | `/events` | Receive an event (`note.created`, `note.updated`, `note.deleted`) | 202 | 422 invalid event |
+| GET | `/events` | List the latest events, newest first | 200 | |
+
+**Design decisions:**
+- **Non-blocking:** notes-service sends events with FastAPI `BackgroundTasks`, so the user gets their response before the event is sent
+- **Failure-tolerant:** a 2-second timeout and a logged warning mean notes keep working even if notifications-service is down (tested by stopping the container)
+- **Service discovery by name:** inside Docker Compose, notes-service reaches it at `http://notifications-service:8000`
 
 ---
 

@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  users-service:
+    build: ./services/users-service
+    environment:
+      DATABASE_URL: postgresql+psycopg2://platform:${POSTGRES_PASSWORD}@postgres:5432/users_db
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notes-service:
+    build: ./services/notes-service
+    environment:
+      DATABASE_URL: postgresql+psycopg2://platform:${POSTGRES_PASSWORD}@postgres:5432/notes_db
+      JWT_SECRET: ${JWT_SECRET}
+      NOTIFICATIONS_URL: http://notifications-service:8000
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      notifications-service:
+        condition: service_started
+
+  notifications-service:
+    build: ./services/notifications-service
+    ports:
+      - "8003:8000"
+
+volumes:
+  pgdata:

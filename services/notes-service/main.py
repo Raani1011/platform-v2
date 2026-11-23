@@ -1,16 +1,17 @@
 from typing import List
 
-from fastapi import FastAPI, Depends, HTTPException, Response, status
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 import models
 from database import engine, get_db
 from schemas import NoteCreate, NoteUpdate, NoteOut
 from auth import get_current_user_id
+from notifier import send_event
 
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="notes-service", version="1.0.0")
+app = FastAPI(title="notes-service", version="1.1.0")
 
 
 def get_owned_note(note_id: int, user_id: int, db: Session) -> models.Note:
@@ -32,6 +33,7 @@ def health():
 @app.post("/notes", response_model=NoteOut, status_code=status.HTTP_201_CREATED)
 def create_note(
     note: NoteCreate,
+    background_tasks: BackgroundTasks,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
@@ -39,6 +41,7 @@ def create_note(
     db.add(new_note)
     db.commit()
     db.refresh(new_note)
+    background_tasks.add_task(send_event, "note.created", user_id, new_note.id, new_note.title)
     return new_note
 
 
@@ -68,6 +71,7 @@ def get_note(
 def update_note(
     note_id: int,
     updates: NoteUpdate,
+    background_tasks: BackgroundTasks,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
@@ -76,16 +80,20 @@ def update_note(
         setattr(note, field, value)
     db.commit()
     db.refresh(note)
+    background_tasks.add_task(send_event, "note.updated", user_id, note.id, note.title)
     return note
 
 
 @app.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_note(
     note_id: int,
+    background_tasks: BackgroundTasks,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
     note = get_owned_note(note_id, user_id, db)
+    title = note.title
     db.delete(note)
     db.commit()
+    background_tasks.add_task(send_event, "note.deleted", user_id, note_id, title)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
