@@ -55,7 +55,7 @@ flowchart LR
 - [x] Day 2: notes-service (JWT-protected CRUD)
 - [x] Day 3: notifications-service + Docker Compose with PostgreSQL
 - [x] Day 4: Terraform for VPC, EKS (spot nodes) and RDS
-- [ ] Day 5: Secrets Manager + External Secrets Operator
+- [x] Day 5: Secrets Manager + External Secrets Operator
 - [ ] Day 6: Reusable Helm chart + ArgoCD app-of-apps
 - [ ] Day 7: ALB Ingress, custom domain, end-to-end test
 
