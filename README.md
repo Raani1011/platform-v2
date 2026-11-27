@@ -193,6 +193,82 @@ An internal service that receives events from notes-service whenever a note is c
 
 ---
 
+## Infrastructure (Terraform)
+
+All AWS infrastructure lives in `terraform/` and is created and destroyed each working session.
+
+| File | What it builds |
+|------|----------------|
+| `versions.tf` | AWS and random providers, S3 remote state with native locking (no DynamoDB table needed) |
+| `vpc.tf` | VPC across 2 AZs with public, private and database subnets, and a single NAT gateway |
+| `eks.tf` | EKS 1.36 with a managed node group on **spot** instances (`t3.medium` / `t3a.medium`) |
+| `rds.tf` | PostgreSQL 17 on `db.t4g.micro` in private subnets, reachable only from EKS nodes |
+| `secrets.tf` | JWT key in Secrets Manager plus a least-privilege IAM role for External Secrets Operator |
+| `outputs.tf` | Cluster name, RDS endpoint, secret ARNs and the kubectl command |
+
+**Design decisions:**
+- **Standard-support Kubernetes only:** versions were checked with `aws eks describe-cluster-versions` first, because extended support costs 6x more per hour
+- **RDS instead of a Postgres pod:** no PVCs means no orphaned EBS volumes after teardown
+- **AWS-managed DB password:** `manage_master_user_password` stores it in Secrets Manager, so it never appears in code or state
+- **Private database:** `publicly_accessible = false`, and the security group allows port 5432 only from the EKS node security group
+- **Clean teardown:** no final snapshot, no backups, no CloudWatch control-plane logs, no extra KMS key, and secrets deleted immediately
+
+**Verified:** `pg_isready` from a pod inside the cluster returns *accepting connections*, while the same check from outside the VPC is blocked.
+
+**Run it:**
+
+```bash
+cd terraform
+terraform init
+terraform plan -out=tfplan
+terraform apply tfplan
+aws eks update-kubeconfig --region ap-south-1 --name platform-v2-eks
+
+# when finished
+terraform destroy
+```
+
+---
+
+## Secrets Management (External Secrets Operator)
+
+No secret is typed, copied or committed. AWS generates the values, and External Secrets Operator delivers them into Kubernetes.
+
+```mermaid
+flowchart LR
+    RDS[RDS generates DB password] --> SM[AWS Secrets Manager]
+    TF[Terraform generates JWT key] --> SM
+    SM -->|IRSA: read-only, 2 secrets| ESO[External Secrets Operator]
+    ESO --> KS[Kubernetes Secrets in 'platform' namespace]
+    KS --> APPS[Services and bootstrap Job]
+```
+
+- **Least privilege:** the ESO IAM role can be assumed only by the `external-secrets` service account, and can read only the RDS password and the JWT key
+- **Git-safe manifests:** files in `gitops/secrets/` use placeholders (`${RDS_SECRET_ARN}`), filled in at apply time with `envsubst`
+- **Bootstrap job:** `gitops/jobs/create-notes-db.yaml` uses the delivered password to create `notes_db` on RDS over SSL, and is safe to run more than once
+
+**Run it** (after `terraform apply`):
+
+```bash
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(terraform -chdir=terraform output -raw eso_role_arn) \
+  --wait
+
+kubectl create namespace platform
+kubectl apply -f gitops/secrets/cluster-secret-store.yaml
+export RDS_SECRET_ARN=$(terraform -chdir=terraform output -raw rds_master_secret_arn)
+envsubst < gitops/secrets/external-secrets.yaml | kubectl apply -f -
+
+export RDS_HOST=$(terraform -chdir=terraform output -raw rds_endpoint)
+envsubst < gitops/jobs/create-notes-db.yaml | kubectl apply -f -
+```
+
+> If `helm install` times out downloading the chart from GitHub, download the `.tgz` with `curl --retry 5` and install from the local file.
+
+---
+
 ## Cost-Conscious Approach
 
 - **Hybrid setup:** security and SRE work runs on local minikube for free. AWS is used only where real cloud resources are needed (about 8 of the 30 days).
