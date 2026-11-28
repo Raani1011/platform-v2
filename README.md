@@ -56,7 +56,7 @@ flowchart LR
 - [x] Day 3: notifications-service + Docker Compose with PostgreSQL
 - [x] Day 4: Terraform for VPC, EKS (spot nodes) and RDS
 - [x] Day 5: Secrets Manager + External Secrets Operator
-- [ ] Day 6: Reusable Helm chart + ArgoCD app-of-apps
+- [x] Day 6: Reusable Helm chart + ArgoCD app-of-apps
 - [ ] Day 7: ALB Ingress, custom domain, end-to-end test
 
 ### Week 2: DevSecOps with GitLab CI
@@ -266,6 +266,47 @@ envsubst < gitops/jobs/create-notes-db.yaml | kubectl apply -f -
 ```
 
 > If `helm install` times out downloading the chart from GitHub, download the `.tgz` with `curl --retry 5` and install from the local file.
+
+---
+
+## Deployment (Helm + ArgoCD)
+
+All three services are deployed by **ArgoCD** from this repository using the **app-of-apps** pattern and **one reusable Helm chart**.
+
+```mermaid
+flowchart TD
+    ROOT[platform-root Application] --> APPS[gitops/argocd/apps/]
+    APPS --> U[users-service]
+    APPS --> N[notes-service]
+    APPS --> NF[notifications-service]
+    U & N & NF --> CHART[gitops/charts/platform-service]
+    U -.values.-> UV[gitops/values/users-service.yaml]
+    N -.values.-> NV[gitops/values/notes-service.yaml]
+    NF -.values.-> NFV[gitops/values/notifications-service.yaml]
+```
+
+- **One chart, three values files:** the chart defines the Deployment and Service once, and each service only declares what differs (image, settings, secrets)
+- **Built into the chart:** readiness and liveness probes on `/health`, CPU and memory requests and limits, non-root user, no privilege escalation, all Linux capabilities dropped
+- **Secrets by reference only:** values files list *which* Secret and key to read; the values themselves come from External Secrets Operator
+- **Safe DB connection:** services build the database URL with SQLAlchemy `URL.create()`, so special characters in the AWS-generated password are escaped correctly, and SSL is required
+- **Self-healing:** `selfHeal: true` restores anything changed or deleted by hand (tested by deleting a Deployment)
+- **Images:** `rania2609/platform-<service>:v1` on Docker Hub, with fixed version tags and never `latest`
+
+**One-command setup after `terraform apply`:**
+
+```bash
+./scripts/bootstrap.sh
+```
+
+It connects kubectl, installs External Secrets Operator, syncs secrets from AWS, creates `notes_db`, installs ArgoCD and hands it the root app. It takes about 3 minutes.
+
+**Test locally through a tunnel:**
+
+```bash
+kubectl port-forward -n platform svc/users-service 9001:80 &
+kubectl port-forward -n platform svc/notes-service 9002:80 &
+kubectl port-forward -n platform svc/notifications-service 9003:80 &
+```
 
 ---
 
