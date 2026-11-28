@@ -1,0 +1,6 @@
+apiVersion: v2
+name: platform-service
+description: Reusable chart for every platform-v2 microservice
+type: application
+version: 0.1.0
+appVersion: "v1"

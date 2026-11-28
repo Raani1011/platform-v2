@@ -1,0 +1,30 @@
+replicaCount: 1
+
+image:
+  repository: ""
+  tag: "v1"
+  pullPolicy: IfNotPresent
+
+containerPort: 8000
+
+service:
+  port: 80
+
+# Plain settings, e.g. DB_HOST: my-db.example.com
+env: {}
+
+# Settings read from Kubernetes Secrets (delivered by External Secrets Operator)
+# - name: DB_PASSWORD
+#   secretName: db-credentials
+#   secretKey: DB_PASSWORD
+secretEnv: []
+
+healthPath: /health
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi

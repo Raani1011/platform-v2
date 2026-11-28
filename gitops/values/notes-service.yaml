@@ -1,0 +1,19 @@
+image:
+  repository: rania2609/platform-notes-service
+  tag: "v1"
+
+env:
+  DB_HOST: platform-v2-postgres.cpe2mmk4shjq.ap-south-1.rds.amazonaws.com
+  DB_NAME: notes_db
+  NOTIFICATIONS_URL: http://notifications-service
+
+secretEnv:
+  - name: DB_USER
+    secretName: db-credentials
+    secretKey: DB_USER
+  - name: DB_PASSWORD
+    secretName: db-credentials
+    secretKey: DB_PASSWORD
+  - name: JWT_SECRET
+    secretName: jwt-secret
+    secretKey: JWT_SECRET
